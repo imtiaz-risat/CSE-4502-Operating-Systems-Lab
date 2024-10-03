@@ -2,6 +2,12 @@
 #include <lib/x86.h>
 #include "import.h"
 
+// Define the maximum number of containers/processes the system can support
+// #define NUM_IDS 256
+
+// Define the maximum number of children a single container can have
+// #define MAX_CHILDREN 16
+
 struct SContainer {
     int quota;      // maximum memory quota of the process
     int usage;      // the current memory usage of the process
@@ -21,6 +27,8 @@ void container_init(unsigned int mbi_addr)
 {
     unsigned int real_quota;
     // TODO: define your local variables here.
+    unsigned int available_quota = 0;
+    unsigned int total_pages = get_nps();
 
     pmem_init(mbi_addr);
     real_quota = 0;
@@ -30,10 +38,17 @@ void container_init(unsigned int mbi_addr)
      * It should be the number of the unallocated pages with the normal permission
      * in the physical memory allocation table.
      */
+    for(int i = 0; i < total_pages; i++) {
+        if(at_is_norm(i) && at_is_allocated(i)==0){
+            available_quota++;
+        }
+    }
+    real_quota = available_quota;
 
     KERN_DEBUG("\nreal quota: %d\n\n", real_quota);
 
-    CONTAINER[0].quota = real_quota;
+    // setting up the root container with a quota equal to the total number of available pages
+    CONTAINER[0].quota = real_quota;    
     CONTAINER[0].usage = 0;
     CONTAINER[0].parent = 0;
     CONTAINER[0].nchildren = 0;
@@ -44,28 +59,28 @@ void container_init(unsigned int mbi_addr)
 unsigned int container_get_parent(unsigned int id)
 {
     // TODO
-    return 0;
+    return CONTAINER[id].parent;
 }
 
 // Get the number of children of process # [id].
 unsigned int container_get_nchildren(unsigned int id)
 {
     // TODO
-    return 0;
+    return CONTAINER[id].nchildren;
 }
 
 // Get the maximum memory quota of process # [id].
 unsigned int container_get_quota(unsigned int id)
 {
     // TODO
-    return 0;
+    return CONTAINER[id].quota;
 }
 
 // Get the current memory usage of process # [id].
 unsigned int container_get_usage(unsigned int id)
 {
     // TODO
-    return 0;
+   return CONTAINER[id].usage;
 }
 
 // Determines whether the process # [id] can consume an extra
@@ -73,7 +88,12 @@ unsigned int container_get_usage(unsigned int id)
 unsigned int container_can_consume(unsigned int id, unsigned int n)
 {
     // TODO
-    return 0;
+    // Checks if a container can consume additional resources (pages) without exceeding its quota
+    if(CONTAINER[id].usage + n <= CONTAINER[id].qouta){
+        return 1;
+    }else{
+        return 0;
+    }
 }
 
 /**
@@ -110,6 +130,17 @@ unsigned int container_alloc(unsigned int id)
     /*
      * TODO: Implement the function here.
      */
+    if (CONTAINER[id].usage < CONTAINER[id].quota) {
+        unsigned int page_index = pmem_alloc();
+
+        if (page_index != 0) {
+            CONTAINER[id].usage++;
+            return page_index;
+        }
+    }
+    return 0;
+
+
     return 0;
 }
 
@@ -117,4 +148,8 @@ unsigned int container_alloc(unsigned int id)
 void container_free(unsigned int id, unsigned int page_index)
 {
     // TODO
+    if (at_is_allocated(page_index)) {
+        pmem_free(page_index);
+        CONTAINER[id].usage--;
+    }
 }
